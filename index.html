@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Options Visualizer - Ocean Theme</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        .animate-slideUp {
+            animation: slideUp 0.4s ease-out;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(to right, #a5f3fc, #5eead4);
+            border-radius: 9999px;
+            height: 12px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #14b8a6);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #14b8a6);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
+        }
+
+        /* Smoother slider styling for Greeks */
+        .slider-smooth {
+            height: 8px;
+            transition: all 0.15s ease;
+        }
+
+        .slider-smooth::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #14b8a6);
+            cursor: grab;
+            box-shadow: 0 2px 12px rgba(6, 182, 212, 0.5);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .slider-smooth::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 3px 16px rgba(6, 182, 212, 0.6);
+        }
+
+        .slider-smooth::-webkit-slider-thumb:active {
+            cursor: grabbing;
+            transform: scale(1.05);
+        }
+
+        .slider-smooth::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #14b8a6);
+            cursor: grab;
+            border: none;
+            box-shadow: 0 2px 12px rgba(6, 182, 212, 0.5);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .slider-smooth::-moz-range-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 3px 16px rgba(6, 182, 212, 0.6);
+        }
+
+        .slider-smooth::-moz-range-thumb:active {
+            cursor: grabbing;
+            transform: scale(1.05);
+        }
+
+        .gradient-ocean {
+            background: linear-gradient(to bottom right, #ecfeff, #ccfbf1, #dbeafe);
+        }
+    </style>
+</head>
+<body class="gradient-ocean min-h-screen">
+    <div id="app"></div>
+
+    <script>
+        let state = {
+            view: 'home',
+            contractType: 'call',
+            strikePrice: 150,
+            currentPrice: 145,
+            premium: 5,
+            daysToExpiration: 30,
+            delta: 0.6,
+            gamma: 0.05,
+            theta: -0.15,
+            charts: {},
+            chartMode: 'line' // 'line' or 'heatmap'
+        };
+
+        const strategies = [
+            { id: 'buy-call', name: 'Buy Call', sentiment: 'bullish', description: 'Bet the stock goes up' },
+            { id: 'buy-put', name: 'Buy Put', sentiment: 'bearish', description: 'Bet the stock goes down' },
+            { id: 'bull-call-spread', name: 'Bull Call Spread', sentiment: 'bullish', description: 'Moderate upside, limited risk' },
+            { id: 'iron-condor', name: 'Iron Condor', sentiment: 'neutral', description: 'Profit from low volatility' }
+        ];
+
+        const educationalStrategies = [
+            {
+                name: 'Bull Call Spread',
+                sentiment: 'bullish',
+                color: '#0ea5e9',
+                description: 'Think the stock will go up, but not skyrocket? Buy a call at a lower price and sell another call at a higher price. This limits both your potential profit and loss, making it cheaper than buying a single call. Use when you expect moderate price increases.'
+            },
+            {
+                name: 'Bear Put Spread',
+                sentiment: 'bearish',
+                color: '#ef4444',
+                description: 'Expecting a moderate decline? Buy a put at a higher strike and sell a put at a lower strike. Your cost is reduced, but so is your maximum profit. Use when you think the stock will fall but want to limit your investment.'
+            },
+            {
+                name: 'Iron Condor',
+                sentiment: 'neutral',
+                color: '#8b5cf6',
+                description: 'Betting on stability? Sell both a call spread and a put spread on the same stock. You profit if the stock stays within a range. Use when you expect low volatility and sideways movement.'
+            },
+            {
+                name: 'Long Straddle',
+                sentiment: 'volatile',
+                color: '#f59e0b',
+                description: 'Big move coming but unsure which direction? Buy both a call and a put at the same strike price. You profit if the stock makes a large move either way. Use before major announcements or earnings.'
+            },
+            {
+                name: 'Long Strangle',
+                sentiment: 'volatile',
+                color: '#f59e0b',
+                description: 'Similar to a straddle but cheaper. Buy a call and a put at different strike prices. The stock needs to move further to profit, but your initial cost is lower. Use when you expect significant volatility.'
+            },
+            {
+                name: 'Butterfly Spread',
+                sentiment: 'neutral',
+                color: '#8b5cf6',
+                description: 'Think the stock will land near a specific price? Combine multiple options to profit if the stock ends up at your target. Limited risk, limited reward. Use when you have a precise price target.'
+            },
+            {
+                name: 'Covered Call',
+                sentiment: 'bullish',
+                color: '#10b981',
+                description: 'Already own the stock? Sell a call option to collect premium income. If the stock stays below the strike, you keep the premium. Use to generate income from stocks you plan to hold.'
+            },
+            {
+                name: 'Protective Put',
+                sentiment: 'defensive',
+                color: '#6b7280',
+                description: 'Like insurance for your stock. Buy a put option while holding shares. If the stock drops, your put gains value to offset losses. Use to protect gains or limit downside risk.'
+            },
+            {
+                name: 'Calendar Spread',
+                sentiment: 'neutral',
+                color: '#8b5cf6',
+                description: 'Profit from time decay differences. Sell a short-term option and buy a longer-term option at the same strike. Use when you expect the stock to stay flat in the near term.'
+            },
+            {
+                name: 'Collar',
+                sentiment: 'protective',
+                color: '#6b7280',
+                description: 'Protect your stock while limiting upside. Buy a put for downside protection and sell a call to pay for it. Use when you want to lock in profits or protect against downside with minimal cost.'
+            }
+        ];
+
+        function getSentimentGradient(sentiment) {
+            const gradients = {
+                bullish: 'from-emerald-500 to-teal-500',
+                bearish: 'from-rose-500 to-red-500',
+                neutral: 'from-blue-500 to-indigo-500',
+                volatile: 'from-amber-500 to-orange-500',
+                defensive: 'from-slate-500 to-gray-600',
+                protective: 'from-slate-500 to-gray-600'
+            };
+            return gradients[sentiment] || 'from-cyan-500 to-blue-500';
+        }
+
+        function calculateBreakeven() {
+            return state.contractType === 'call' 
+                ? state.strikePrice + state.premium 
+                : state.strikePrice - state.premium;
+        }
+
+        function calculateMaxProfit() {
+            return state.contractType === 'call' ? 'Unlimited' : (state.strikePrice - state.premium).toFixed(2);
+        }
+
+        function calculateMaxLoss() {
+            return state.premium.toFixed(2);
+        }
+
+        function generatePLData() {
+            const data = [];
+            const rangeMin = state.currentPrice * 0.7;
+            const rangeMax = state.currentPrice * 1.3;
+            const step = (rangeMax - rangeMin) / 100;
+            
+            for (let price = rangeMin; price <= rangeMax; price += step) {
+                const intrinsicValue = state.contractType === 'call' 
+                    ? Math.max(0, price - state.strikePrice)
+                    : Math.max(0, state.strikePrice - price);
+                const profitLoss = intrinsicValue - state.premium;
+                
+                data.push({
+                    stockPrice: price.toFixed(2),
+                    pl: profitLoss.toFixed(2)
+                });
+            }
+            return data;
+        }
+
+        function generateGreeksData() {
+            const data = [];
+            for (let day = state.daysToExpiration; day >= 0; day--) {
+                const timeDecay = state.theta * (state.daysToExpiration - day);
+                data.push({
+                    day: day,
+                    value: (state.premium + timeDecay).toFixed(2)
+                });
+            }
+            return data;
+        }
+
+        function renderHomeView() {
+            return `
+                <div class="max-w-4xl mx-auto p-6">
+                    <div class="text-center mb-12 pt-8">
+                        <div class="inline-block p-4 bg-gradient-to-br from-cyan-500 to-teal-500 rounded-2xl mb-4">
+                            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                            </svg>
+                        </div>
+                        <h1 class="text-5xl font-bold bg-gradient-to-r from-cyan-600 to-teal-600 bg-clip-text text-transparent mb-4">
+                            Options Visualizer
+                        </h1>
+                        <p class="text-xl text-gray-600">Understand your options trades in 30 seconds</p>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-6 mb-8">
+                        <div onclick="changeView('builder')" class="bg-white p-8 rounded-3xl shadow-lg hover:shadow-xl transition-all cursor-pointer border-2 border-cyan-100 hover:border-cyan-300 group">
+                            <div class="w-16 h-16 bg-gradient-to-br from-cyan-500 to-teal-500 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                </svg>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Build Strategy</h3>
+                            <p class="text-gray-600">Create and visualize your options position</p>
+                        </div>
+
+                        <div onclick="changeView('education')" class="bg-white p-8 rounded-3xl shadow-lg hover:shadow-xl transition-all cursor-pointer border-2 border-teal-100 hover:border-teal-300 group">
+                            <div class="w-16 h-16 bg-gradient-to-br from-teal-500 to-blue-500 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Learn Strategies</h3>
+                            <p class="text-gray-600">Explore popular options strategies</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-3xl p-8 shadow-lg">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6">Quick Strategies</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            ${strategies.map(strategy => `
+                                <div onclick="changeView('builder')" class="p-4 rounded-2xl border-2 border-gray-100 hover:border-cyan-300 cursor-pointer transition-all hover:shadow-md group">
+                                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br ${getSentimentGradient(strategy.sentiment)} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                                        </svg>
+                                    </div>
+                                    <p class="font-semibold text-sm text-gray-900">${strategy.name}</p>
+                                    <p class="text-xs text-gray-500 mt-1">${strategy.description}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderBuilderView() {
+            const breakeven = calculateBreakeven();
+            const maxProfit = calculateMaxProfit();
+            const maxLoss = calculateMaxLoss();
+
+            return `
+                <div class="max-w-6xl mx-auto p-6">
+                    <div class="flex items-center justify-between mb-8">
+                        <button onclick="changeView('home')" class="px-6 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition-all shadow-sm font-semibold">
+                            ← Home
+                        </button>
+                        <h2 class="text-3xl font-bold bg-gradient-to-r from-cyan-600 to-teal-600 bg-clip-text text-transparent">
+                            Strategy Builder
+                        </h2>
+                        <button onclick="changeView('education')" class="px-6 py-3 bg-gradient-to-r from-teal-500 to-blue-500 text-white rounded-xl hover:from-teal-600 hover:to-blue-600 transition-all shadow-sm font-semibold flex items-center gap-2">
+                            Learn Strategies
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="space-y-6">
+                        <!-- All inputs in one panel -->
+                        <div class="bg-white p-8 rounded-2xl shadow-lg">
+                            <h3 class="text-xl font-bold text-gray-900 mb-6">Contract Details</h3>
+                            
+                            <div class="space-y-6">
+                                <!-- Contract Type -->
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-3">Contract Type</label>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button onclick="updateContractType('call')" class="py-4 rounded-xl font-semibold transition-all ${state.contractType === 'call' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                                            Call
+                                        </button>
+                                        <button onclick="updateContractType('put')" class="py-4 rounded-xl font-semibold transition-all ${state.contractType === 'put' ? 'bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-lg' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                                            Put
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="grid md:grid-cols-2 gap-6">
+                                    <!-- Strike Price -->
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
+                                            Strike Price
+                                        </label>
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-gray-500">$</span>
+                                            <input type="number" min="1" max="500" value="${state.strikePrice}" 
+                                                onchange="updateValue('strikePrice', this.value)"
+                                                class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
+                                        </div>
+                                    </div>
+
+                                    <!-- Current Stock Price -->
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
+                                            Current Stock Price
+                                        </label>
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-gray-500">$</span>
+                                            <input type="number" min="1" max="500" value="${state.currentPrice}" 
+                                                onchange="updateValue('currentPrice', this.value)"
+                                                class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
+                                        </div>
+                                    </div>
+
+                                    <!-- Premium -->
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
+                                            Premium (per share)
+                                        </label>
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-gray-500">$</span>
+                                            <input type="number" min="0.1" max="100" step="0.1" value="${state.premium}" 
+                                                onchange="updateValue('premium', this.value)"
+                                                class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
+                                        </div>
+                                    </div>
+
+                                    <!-- Days to Expiration -->
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
+                                            Days to Expiration
+                                        </label>
+                                        <input type="number" min="1" max="365" value="${state.daysToExpiration}" 
+                                            onchange="updateValue('daysToExpiration', this.value)"
+                                            class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Position Summary -->
+                        <div class="bg-gradient-to-br from-white to-cyan-50 p-8 rounded-2xl shadow-lg border-2 border-cyan-200">
+                            <h3 class="text-xl font-bold text-gray-900 mb-6">Position Summary</h3>
+                            <div class="grid md:grid-cols-4 gap-6">
+                                <div class="text-center">
+                                    <p class="text-sm text-gray-500 mb-1">Breakeven</p>
+                                    <p class="text-3xl font-bold text-cyan-600">$${breakeven.toFixed(2)}</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-sm text-gray-500 mb-1">Max Profit</p>
+                                    <p class="text-3xl font-bold text-emerald-600">${maxProfit}</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-sm text-gray-500 mb-1">Max Loss</p>
+                                    <p class="text-3xl font-bold text-rose-600">$${maxLoss}</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-sm text-gray-500 mb-1">Total Cost</p>
+                                    <p class="text-3xl font-bold text-gray-900">$${(state.premium * 100).toFixed(0)}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Visualize Button -->
+                        <button onclick="changeView('visualization')" class="w-full py-5 bg-gradient-to-r from-cyan-500 via-teal-500 to-blue-500 text-white font-bold text-lg rounded-2xl hover:from-cyan-600 hover:via-teal-600 hover:to-blue-600 transition-all shadow-lg hover:shadow-xl">
+                            Visualize Strategy →
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderVisualizationView() {
+            const breakeven = calculateBreakeven();
+            const maxProfit = calculateMaxProfit();
+            const maxLoss = calculateMaxLoss();
+
+            setTimeout(() => {
+                if (state.chartMode === 'line') {
+                    document.getElementById('plChart').style.display = 'block';
+                    document.getElementById('heatmapCanvas').style.display = 'none';
+                    document.getElementById('heatmapLegend').style.display = 'none';
+                    createPLChart();
+                } else {
+                    document.getElementById('plChart').style.display = 'none';
+                    document.getElementById('heatmapCanvas').style.display = 'block';
+                    document.getElementById('heatmapLegend').style.display = 'flex';
+                    createHeatmap();
+                }
+            }, 100);
+
+            return `
+                <div class="max-w-6xl mx-auto p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <button onclick="changeView('builder')" class="px-6 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition-all shadow-sm font-semibold">
+                            ← Back
+                        </button>
+                        <h2 class="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-teal-600 bg-clip-text text-transparent">
+                            ${state.contractType === 'call' ? 'Long Call' : 'Long Put'} Analysis
+                        </h2>
+                        <div class="w-24"></div>
+                    </div>
+
+                    <!-- Key Context Info -->
+                    <div class="bg-white p-4 rounded-2xl shadow-md mb-6 flex items-center justify-center gap-8">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-500">Current Stock Price:</span>
+                            <span class="text-lg font-bold text-gray-900">$${state.currentPrice.toFixed(2)}</span>
+                        </div>
+                        <div class="w-px h-8 bg-gray-200"></div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-500">Days to Expiration:</span>
+                            <span class="text-lg font-bold text-gray-900">${state.daysToExpiration}</span>
+                        </div>
+                    </div>
+
+                    <!-- Greeks Controls at Top -->
+                    <div class="bg-white p-6 rounded-2xl shadow-md mb-6">
+                        <h3 class="text-lg font-bold text-gray-900 mb-4">Greeks - Adjust to See Impact</h3>
+                        <div class="grid md:grid-cols-3 gap-6">
+                            <!-- Delta -->
+                            <div>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <label class="block text-sm font-semibold text-gray-700">Delta</label>
+                                    <div class="relative group">
+                                        <svg class="w-4 h-4 text-gray-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-64 z-10">
+                                            <div class="font-semibold mb-1">Delta (Δ)</div>
+                                            Measures how much the option price changes when the stock moves $1. A delta of 0.6 means the option gains $0.60 when the stock rises $1.
+                                            <div class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <input type="number" min="-1" max="1" step="0.01" value="${state.delta}" 
+                                    onchange="updateGreekAndRefresh('delta', this.value)"
+                                    class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold mb-3">
+                                <input type="range" min="-1" max="1" step="0.001" value="${state.delta}" 
+                                    oninput="updateGreekAndRefresh('delta', this.value)" 
+                                    class="w-full h-2 bg-gradient-to-r from-cyan-200 to-teal-200 rounded-full appearance-none cursor-pointer slider-smooth">
+                                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>-1.0</span>
+                                    <span>0</span>
+                                    <span>1.0</span>
+                                </div>
+                            </div>
+
+                            <!-- Gamma -->
+                            <div>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <label class="block text-sm font-semibold text-gray-700">Gamma</label>
+                                    <div class="relative group">
+                                        <svg class="w-4 h-4 text-gray-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-64 z-10">
+                                            <div class="font-semibold mb-1">Gamma (Γ)</div>
+                                            Measures how fast delta changes. Higher gamma means delta accelerates more quickly as the stock moves.
+                                            <div class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <input type="number" min="0" max="0.2" step="0.001" value="${state.gamma}" 
+                                    onchange="updateGreekAndRefresh('gamma', this.value)"
+                                    class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold mb-3">
+                                <input type="range" min="0" max="0.2" step="0.001" value="${state.gamma}" 
+                                    oninput="updateGreekAndRefresh('gamma', this.value)" 
+                                    class="w-full h-2 bg-gradient-to-r from-cyan-200 to-teal-200 rounded-full appearance-none cursor-pointer slider-smooth">
+                                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>0</span>
+                                    <span>0.1</span>
+                                    <span>0.2</span>
+                                </div>
+                            </div>
+
+                            <!-- Theta -->
+                            <div>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <label class="block text-sm font-semibold text-gray-700">Theta</label>
+                                    <div class="relative group">
+                                        <svg class="w-4 h-4 text-gray-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-64 z-10">
+                                            <div class="font-semibold mb-1">Theta (Θ)</div>
+                                            Measures time decay. How much value the option loses each day. A theta of -0.15 means the option loses $0.15 per day.
+                                            <div class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <input type="number" min="-1" max="0" step="0.001" value="${state.theta}" 
+                                    onchange="updateGreekAndRefresh('theta', this.value)"
+                                    class="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold mb-3">
+                                <input type="range" min="-1" max="0" step="0.001" value="${state.theta}" 
+                                    oninput="updateGreekAndRefresh('theta', this.value)" 
+                                    class="w-full h-2 bg-gradient-to-r from-cyan-200 to-teal-200 rounded-full appearance-none cursor-pointer slider-smooth">
+                                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>-1.0</span>
+                                    <span>-0.5</span>
+                                    <span>0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Beginner Insight -->
+                    <div class="bg-gradient-to-r from-cyan-50 to-teal-50 border-2 border-cyan-200 p-6 rounded-2xl mb-6">
+                        <div class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-cyan-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                            </svg>
+                            <div>
+                                <h4 class="font-bold text-gray-900 mb-1">What's Happening to Your Position</h4>
+                                <p class="text-gray-700 leading-relaxed">${generateInsight()}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Key Metrics -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-white p-6 rounded-2xl shadow-md">
+                            <p class="text-sm text-gray-500 mb-1">Breakeven</p>
+                            <p class="text-3xl font-bold text-cyan-600">$${breakeven.toFixed(2)}</p>
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-md">
+                            <p class="text-sm text-gray-500 mb-1">Max Profit</p>
+                            <p class="text-3xl font-bold text-emerald-600">${maxProfit}</p>
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-md">
+                            <p class="text-sm text-gray-500 mb-1">Max Loss</p>
+                            <p class="text-3xl font-bold text-rose-600">$${maxLoss}</p>
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-md">
+                            <p class="text-sm text-gray-500 mb-1">Cost</p>
+                            <p class="text-3xl font-bold text-gray-900">$${(state.premium * 100).toFixed(0)}</p>
+                        </div>
+                    </div>
+
+                    <!-- Chart Section with Toggle -->
+                    <div class="bg-white p-8 rounded-3xl shadow-lg">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-900">Profit & Loss Visualization</h3>
+                                <p class="text-sm text-gray-500 mt-1" id="chartDescription">Adjust the Greeks above to see how they impact your position's profit/loss profile.</p>
+                            </div>
+                            <div class="flex gap-2 bg-gray-100 p-1 rounded-xl">
+                                <button onclick="toggleChartMode('line')" id="lineBtn" class="px-4 py-2 rounded-lg font-semibold transition-all bg-white text-cyan-600 shadow-sm">
+                                    Line Chart
+                                </button>
+                                <button onclick="toggleChartMode('heatmap')" id="heatmapBtn" class="px-4 py-2 rounded-lg font-semibold transition-all text-gray-600 hover:text-gray-900">
+                                    Heatmap
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="chartContainer">
+                            <canvas id="plChart" style="max-height: 500px;"></canvas>
+                            <canvas id="heatmapCanvas" style="width: 100%; height: 500px; display: none;"></canvas>
+                        </div>
+
+                        <div id="heatmapLegend" style="display: none;" class="mt-6 flex items-center justify-center gap-8">
+                            <div class="flex items-center gap-2">
+                                <div class="w-12 h-4 bg-gradient-to-r from-red-600 via-yellow-300 to-green-600 rounded"></div>
+                                <span class="text-sm text-gray-600">Loss → Breakeven → Profit</span>
+                            </div>
+                            <div class="text-sm text-gray-500">
+                                <strong>Theta Effect:</strong> Colors fade vertically (time decay)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderEducationView() {
+            return `
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onclick="changeView('builder')"></div>
+                <div class="fixed inset-4 md:inset-8 bg-white rounded-3xl shadow-2xl overflow-hidden animate-slideUp z-50">
+                    <div class="bg-gradient-to-r from-cyan-500 via-teal-500 to-blue-500 p-6 relative">
+                        <button onclick="changeView('builder')" class="absolute top-4 right-4 text-white/90 hover:text-white hover:bg-white/20 rounded-full p-2 transition-all">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                        <h2 class="text-3xl font-bold text-white mb-2">Popular Options Strategies</h2>
+                        <p class="text-white/90 text-sm">Learn when and how to use multi-leg strategies</p>
+                    </div>
+
+                    <div class="overflow-y-auto h-[calc(100%-180px)] p-6">
+                        <div class="space-y-4 max-w-4xl mx-auto">
+                            ${educationalStrategies.map(strategy => `
+                                <div class="bg-gradient-to-br from-gray-50 to-white rounded-2xl p-6 border-l-4 shadow-sm hover:shadow-md transition-all cursor-pointer hover:scale-[1.01]" style="border-color: ${strategy.color}">
+                                    <div class="flex items-start gap-4">
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-3 mb-3">
+                                                <h3 class="text-xl font-bold text-gray-900">${strategy.name}</h3>
+                                                <span class="px-3 py-1 rounded-full text-xs font-bold text-white bg-gradient-to-r ${getSentimentGradient(strategy.sentiment)}">
+                                                    ${strategy.sentiment.toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <p class="text-gray-700 leading-relaxed">${strategy.description}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-white via-white to-transparent">
+                        <button onclick="changeView('builder')" class="w-full py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white font-bold rounded-xl hover:from-cyan-600 hover:to-teal-600 transition-all shadow-lg">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            let content = '';
+
+            switch(state.view) {
+                case 'home':
+                    content = renderHomeView();
+                    break;
+                case 'builder':
+                    content = renderBuilderView();
+                    break;
+                case 'visualization':
+                    content = renderVisualizationView();
+                    break;
+                case 'education':
+                    content = renderEducationView();
+                    break;
+            }
+
+            app.innerHTML = content;
+        }
+
+        function changeView(view) {
+            state.view = view;
+            render();
+        }
+
+        function updateContractType(type) {
+            state.contractType = type;
+            render();
+        }
+
+        function updateValue(key, value) {
+            state[key] = parseFloat(value);
+            render();
+        }
+
+        function generateInsight() {
+            const breakeven = calculateBreakeven();
+            const daysLeft = state.daysToExpiration;
+            const delta = Math.abs(state.delta);
+            const theta = Math.abs(state.theta);
+            const gamma = state.gamma;
+            const distanceFromStrike = Math.abs(state.currentPrice - state.strikePrice);
+            
+            // Calculate dominance scores for each factor
+            const timeDecayScore = theta * (30 / Math.max(daysLeft, 1)); // Higher as expiration approaches
+            const priceSensitivityScore = delta * 2; // Delta's direct impact
+            const gammaScore = gamma * 20 / (1 + distanceFromStrike / 5); // Higher near strike
+            
+            // Determine dominant factor
+            let insight = "";
+            
+            if (timeDecayScore > priceSensitivityScore && timeDecayScore > gammaScore) {
+                // TIME DECAY IS DOMINANT
+                if (daysLeft < 7) {
+                    insight = `Time is running out fast. This option loses about $${(theta * 100).toFixed(0)} every single day, even if the stock doesn't move at all.`;
+                } else if (daysLeft < 21) {
+                    insight = `Time decay is your biggest problem right now. Every day that passes costs you money, whether the stock moves or not.`;
+                } else {
+                    insight = `The clock is ticking against you. This option loses value each day just from time passing—${daysLeft} days might sound like a lot, but it adds up.`;
+                }
+            } 
+            else if (gammaScore > priceSensitivityScore && gammaScore > timeDecayScore) {
+                // GAMMA (ACCELERATION) IS DOMINANT
+                if (distanceFromStrike < 3) {
+                    insight = `You're in the danger zone—right at the strike price where tiny moves create huge swings. A $1 change could mean a $${(gamma * 100).toFixed(0)} shift in how fast you're making or losing money.`;
+                } else if (distanceFromStrike < 8) {
+                    insight = `You're close to the strike where things accelerate fast. Small price movements will have bigger effects on your position than usual.`;
+                } else {
+                    insight = `The stock is approaching your strike price. As it gets closer, your gains or losses will start accelerating faster.`;
+                }
+            }
+            else {
+                // PRICE SENSITIVITY (DELTA) IS DOMINANT
+                if (delta > 0.8) {
+                    insight = `This option tracks the stock almost perfectly. When the stock moves $1, you gain or lose about $${(delta * 100).toFixed(0)}—just like owning the stock itself.`;
+                } else if (delta > 0.5) {
+                    insight = `Price movement drives everything right now. If the stock moves $1, this option moves about $${(delta * 100).toFixed(0)}. Where the stock goes, you follow.`;
+                } else if (delta > 0.25) {
+                    insight = `The stock's price matters, but you're only capturing about ${(delta * 100).toFixed(0)}% of its movements. You need decent-sized moves to make real money.`;
+                } else {
+                    if (state.contractType === 'call' && state.currentPrice < state.strikePrice) {
+                        insight = `The stock is too far from your strike price. It barely responds to price changes right now—you need a big rally to break even at $${breakeven.toFixed(2)}.`;
+                    } else if (state.contractType === 'put' && state.currentPrice > state.strikePrice) {
+                        insight = `The stock is too far from your strike price. It barely responds to price changes right now—you need a big drop to break even at $${breakeven.toFixed(2)}.`;
+                    } else {
+                        insight = `This option is moving very slowly. Small price changes won't help much—you need the stock to make a serious move in your direction.`;
+                    }
+                }
+            }
+            
+            return insight;
+        }
+
+        function updateGreekAndRefresh(key, value) {
+            state[key] = parseFloat(value);
+            render();
+        }
+
+        function toggleChartMode(mode) {
+            state.chartMode = mode;
+            
+            // Update button states
+            const lineBtn = document.getElementById('lineBtn');
+            const heatmapBtn = document.getElementById('heatmapBtn');
+            const plChart = document.getElementById('plChart');
+            const heatmapCanvas = document.getElementById('heatmapCanvas');
+            const heatmapLegend = document.getElementById('heatmapLegend');
+            const chartDescription = document.getElementById('chartDescription');
+            
+            if (mode === 'line') {
+                lineBtn.className = 'px-4 py-2 rounded-lg font-semibold transition-all bg-white text-cyan-600 shadow-sm';
+                heatmapBtn.className = 'px-4 py-2 rounded-lg font-semibold transition-all text-gray-600 hover:text-gray-900';
+                plChart.style.display = 'block';
+                heatmapCanvas.style.display = 'none';
+                heatmapLegend.style.display = 'none';
+                chartDescription.textContent = "Adjust the Greeks above to see how they impact your position's profit/loss profile.";
+                createPLChart();
+            } else {
+                heatmapBtn.className = 'px-4 py-2 rounded-lg font-semibold transition-all bg-white text-cyan-600 shadow-sm';
+                lineBtn.className = 'px-4 py-2 rounded-lg font-semibold transition-all text-gray-600 hover:text-gray-900';
+                plChart.style.display = 'none';
+                heatmapCanvas.style.display = 'block';
+                heatmapLegend.style.display = 'flex';
+                chartDescription.textContent = 'See how profit/loss changes across time and price, with Greek effects visualized.';
+                createHeatmap();
+            }
+        }
+
+        function createHeatmap() {
+            const canvas = document.getElementById('heatmapCanvas');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const width = canvas.clientWidth;
+            const height = 500;
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Configuration
+            const padding = 60;
+            const gridWidth = width - 2 * padding;
+            const gridHeight = height - 2 * padding;
+            
+            // Price range (X-axis)
+            const priceMin = state.currentPrice * 0.7;
+            const priceMax = state.currentPrice * 1.3;
+            const priceSteps = 40;
+            const priceStep = (priceMax - priceMin) / priceSteps;
+            
+            // Time range (Y-axis) - days to expiration
+            const timeMin = 0;
+            const timeMax = state.daysToExpiration;
+            const timeSteps = 25;
+            const timeStep = Math.max(1, Math.floor(timeMax / timeSteps));
+            
+            // Cell dimensions
+            const cellWidth = gridWidth / priceSteps;
+            const cellHeight = gridHeight / timeSteps;
+            
+            // Store cell data for hover interactions
+            const cellData = [];
+            
+            // Draw heatmap cells
+            for (let i = 0; i < priceSteps; i++) {
+                for (let j = 0; j < timeSteps; j++) {
+                    const price = priceMin + i * priceStep;
+                    const daysLeft = timeMax - j * timeStep;
+                    
+                    // Calculate P/L for this price/time combination
+                    const intrinsicValue = state.contractType === 'call'
+                        ? Math.max(0, price - state.strikePrice)
+                        : Math.max(0, state.strikePrice - price);
+                    
+                    // Apply time decay (theta effect)
+                    const timeDecay = state.theta * (state.daysToExpiration - daysLeft);
+                    const contractValue = intrinsicValue + state.premium + timeDecay;
+                    const pl = contractValue - state.premium;
+                    const plPercentage = (pl / state.premium) * 100;
+                    
+                    // Apply delta influence (gradient left/right)
+                    const deltaInfluence = state.delta * (price - state.strikePrice);
+                    const adjustedPL = pl + deltaInfluence * 0.1;
+                    
+                    // Apply gamma effect (sharper transitions near strike)
+                    const distanceFromStrike = Math.abs(price - state.strikePrice);
+                    const gammaMultiplier = 1 + state.gamma * 10 / (1 + distanceFromStrike / 10);
+                    const finalPL = adjustedPL * gammaMultiplier;
+                    
+                    // Color calculation
+                    const maxPL = state.strikePrice * 0.3; // Scale for color intensity
+                    const normalizedPL = Math.max(-1, Math.min(1, finalPL / maxPL));
+                    
+                    // Theta fade effect (reduce opacity as time passes)
+                    const opacityFactor = daysLeft / state.daysToExpiration;
+                    
+                    let color;
+                    if (normalizedPL > 0) {
+                        // Green for profit
+                        color = `rgba(16, 185, 129, ${opacityFactor * 0.3 + normalizedPL * 0.7})`;
+                    } else if (normalizedPL < 0) {
+                        // Red for loss
+                        color = `rgba(239, 68, 68, ${opacityFactor * 0.3 + Math.abs(normalizedPL) * 0.7})`;
+                    } else {
+                        // Yellow for breakeven
+                        color = `rgba(250, 204, 21, ${opacityFactor * 0.5})`;
+                    }
+                    
+                    // Draw cell
+                    const x = padding + i * cellWidth;
+                    const y = padding + j * cellHeight;
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, y, cellWidth, cellHeight);
+                    
+                    // Store cell data for hover
+                    cellData.push({
+                        x: x,
+                        y: y,
+                        width: cellWidth,
+                        height: cellHeight,
+                        price: price,
+                        daysLeft: daysLeft,
+                        contractValue: contractValue,
+                        pl: pl,
+                        plPercentage: plPercentage
+                    });
+                }
+            }
+            
+            // Draw axes and labels
+            ctx.strokeStyle = '#6b7280';
+            ctx.lineWidth = 2;
+            ctx.font = '12px sans-serif';
+            ctx.fillStyle = '#374151';
+            
+            // Y-axis (Time)
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, height - padding);
+            ctx.stroke();
+            
+            // Y-axis label
+            ctx.save();
+            ctx.translate(20, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText('Days to Expiration', 0, 0);
+            ctx.restore();
+            
+            // Y-axis ticks
+            for (let i = 0; i <= 5; i++) {
+                const days = Math.floor(timeMax * (1 - i / 5));
+                const y = padding + (i / 5) * gridHeight;
+                ctx.fillText(days.toString(), padding - 25, y + 4);
+            }
+            
+            // X-axis (Price)
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.stroke();
+            
+            // X-axis label
+            ctx.textAlign = 'center';
+            ctx.fillText('Underlying Price ($)', width / 2, height - 20);
+            
+            // X-axis ticks
+            for (let i = 0; i <= 5; i++) {
+                const price = priceMin + (priceMax - priceMin) * (i / 5);
+                const x = padding + (i / 5) * gridWidth;
+                ctx.fillText('$' + price.toFixed(0), x, height - padding + 20);
+            }
+            
+            // Draw strike price line
+            const strikePriceX = padding + ((state.strikePrice - priceMin) / (priceMax - priceMin)) * gridWidth;
+            ctx.strokeStyle = '#8b5cf6';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(strikePriceX, padding);
+            ctx.lineTo(strikePriceX, height - padding);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Strike label
+            ctx.fillStyle = '#8b5cf6';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillText('Strike: $' + state.strikePrice, strikePriceX, padding - 10);
+            
+            // Add hover interaction
+            setupHeatmapHover(canvas, cellData, padding);
+        }
+
+        function setupHeatmapHover(canvas, cellData, padding) {
+            // Create tooltip element if it doesn't exist
+            let tooltip = document.getElementById('heatmapTooltip');
+            if (!tooltip) {
+                tooltip = document.createElement('div');
+                tooltip.id = 'heatmapTooltip';
+                tooltip.style.position = 'absolute';
+                tooltip.style.background = 'rgba(0, 0, 0, 0.9)';
+                tooltip.style.color = 'white';
+                tooltip.style.padding = '12px 16px';
+                tooltip.style.borderRadius = '8px';
+                tooltip.style.fontSize = '13px';
+                tooltip.style.pointerEvents = 'none';
+                tooltip.style.display = 'none';
+                tooltip.style.zIndex = '1000';
+                tooltip.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+                tooltip.style.fontFamily = 'sans-serif';
+                tooltip.style.lineHeight = '1.5';
+                document.body.appendChild(tooltip);
+            }
+            
+            // Store handlers to allow proper cleanup
+            if (!canvas._heatmapHandlers) {
+                canvas._heatmapHandlers = {
+                    mousemove: null,
+                    mouseleave: null
+                };
+            }
+            
+            // Remove old event listeners if they exist
+            if (canvas._heatmapHandlers.mousemove) {
+                canvas.removeEventListener('mousemove', canvas._heatmapHandlers.mousemove);
+            }
+            if (canvas._heatmapHandlers.mouseleave) {
+                canvas.removeEventListener('mouseleave', canvas._heatmapHandlers.mouseleave);
+            }
+            
+            // Create new handlers
+            const mousemoveHandler = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // Find cell under cursor
+                let hoveredCell = null;
+                for (const cell of cellData) {
+                    if (x >= cell.x && x <= cell.x + cell.width && 
+                        y >= cell.y && y <= cell.y + cell.height) {
+                        hoveredCell = cell;
+                        break;
+                    }
+                }
+                
+                if (hoveredCell) {
+                    // Show tooltip
+                    const plColor = hoveredCell.pl >= 0 ? '#10b981' : '#ef4444';
+                    const plSign = hoveredCell.pl >= 0 ? '+' : '';
+                    const perSign = hoveredCell.plPercentage >= 0 ? '+' : '';
+                    
+                    tooltip.innerHTML = `
+                        <div style="font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px;">
+                            Stock: $${hoveredCell.price.toFixed(2)} | ${hoveredCell.daysLeft} days left
+                        </div>
+                        <div style="margin-bottom: 4px;">
+                            <span style="color: #9ca3af;">Contract Value:</span> 
+                            <span style="font-weight: 600;">$${hoveredCell.contractValue.toFixed(2)}</span>
+                        </div>
+                        <div style="margin-bottom: 4px;">
+                            <span style="color: #9ca3af;">Profit/Loss:</span> 
+                            <span style="color: ${plColor}; font-weight: 700;">${plSign}$${hoveredCell.pl.toFixed(2)}</span>
+                        </div>
+                        <div>
+                            <span style="color: #9ca3af;">P/L Percentage:</span> 
+                            <span style="color: ${plColor}; font-weight: 700;">${perSign}${hoveredCell.plPercentage.toFixed(1)}%</span>
+                        </div>
+                    `;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = (e.clientX + 15) + 'px';
+                    tooltip.style.top = (e.clientY + 15) + 'px';
+                    
+                    canvas.style.cursor = 'pointer';
+                } else {
+                    tooltip.style.display = 'none';
+                    canvas.style.cursor = 'default';
+                }
+            };
+            
+            const mouseleaveHandler = () => {
+                tooltip.style.display = 'none';
+                canvas.style.cursor = 'default';
+            };
+            
+            // Store and attach new handlers
+            canvas._heatmapHandlers.mousemove = mousemoveHandler;
+            canvas._heatmapHandlers.mouseleave = mouseleaveHandler;
+            
+            canvas.addEventListener('mousemove', mousemoveHandler);
+            canvas.addEventListener('mouseleave', mouseleaveHandler);
+        }
+
+        function createPLChart() {
+            const canvas = document.getElementById('plChart');
+            if (!canvas) return;
+
+            if (state.charts.pl) {
+                state.charts.pl.destroy();
+            }
+
+            const data = generatePLData();
+            const ctx = canvas.getContext('2d');
+
+            // Separate data into profit and loss segments
+            const profitData = data.map(d => parseFloat(d.pl) >= 0 ? d.pl : null);
+            const lossData = data.map(d => parseFloat(d.pl) < 0 ? d.pl : null);
+
+            state.charts.pl = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => d.stockPrice),
+                    datasets: [
+                        {
+                            label: 'Profit',
+                            data: profitData,
+                            borderColor: '#10b981',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            fill: false,
+                            tension: 0.4,
+                            spanGaps: false
+                        },
+                        {
+                            label: 'Loss',
+                            data: lossData,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            fill: false,
+                            tension: 0.4,
+                            spanGaps: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            titleColor: '#111827',
+                            bodyColor: '#6b7280',
+                            borderColor: '#e5e7eb',
+                            borderWidth: 1,
+                            padding: 12,
+                            cornerRadius: 12
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Stock Price ($)' },
+                            ticks: { maxTicksLimit: 10 }
+                        },
+                        y: {
+                            title: { display: true, text: 'Profit/Loss ($)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>
