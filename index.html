@@ -111,6 +111,7 @@
     <script>
         let state = {
             view: 'home',
+            previousView: 'home',
             contractType: 'call',
             strikePrice: 150,
             currentPrice: 145,
@@ -120,7 +121,21 @@
             gamma: 0.05,
             theta: -0.15,
             charts: {},
-            chartMode: 'line' // 'line' or 'heatmap'
+            chartMode: 'line',
+            legs: [
+                {
+                    id: 1,
+                    type: 'call', // 'call' or 'put'
+                    action: 'buy', // 'buy' or 'sell'
+                    strikePrice: 150,
+                    premium: 5,
+                    quantity: 1,
+                    delta: 0.6,
+                    gamma: 0.05,
+                    theta: -0.15
+                }
+            ],
+            nextLegId: 2
         };
 
         const strategies = [
@@ -212,11 +227,42 @@
         }
 
         function calculateMaxProfit() {
-            return state.contractType === 'call' ? 'Unlimited' : (state.strikePrice - state.premium).toFixed(2);
+            // Sample P/L across a wide price range and return the maximum value found
+            const rangeMin = Math.min(...state.legs.map(l => l.strikePrice)) * 0.5;
+            const rangeMax = Math.max(...state.legs.map(l => l.strikePrice)) * 2.0;
+            const steps = 500;
+            const step = (rangeMax - rangeMin) / steps;
+
+            let maxPL = -Infinity;
+            let isUnbounded = false;
+
+            for (let price = rangeMin; price <= rangeMax; price += step) {
+                let totalPL = 0;
+                state.legs.forEach(leg => {
+                    const intrinsicValue = leg.type === 'call'
+                        ? Math.max(0, price - leg.strikePrice)
+                        : Math.max(0, leg.strikePrice - price);
+                    const legPL = intrinsicValue - leg.premium;
+                    const multiplier = (leg.action === 'buy' ? 1 : -1) * leg.quantity;
+                    totalPL += legPL * multiplier * 100;
+                });
+                if (totalPL > maxPL) maxPL = totalPL;
+            }
+
+            // Check if profit keeps growing at the upper boundary (unbounded upside)
+            const hasNakedLongCall = state.legs.some(l => l.type === 'call' && l.action === 'buy') &&
+                !state.legs.some(l => l.type === 'call' && l.action === 'sell' && 
+                    l.strikePrice > Math.min(...state.legs.filter(x => x.type === 'call' && x.action === 'buy').map(x => x.strikePrice)));
+            
+            if (hasNakedLongCall) return 'Unlimited';
+
+            return maxPL > 0 ? '$' + maxPL.toFixed(2) : '$0.00';
         }
 
         function calculateMaxLoss() {
-            return state.premium.toFixed(2);
+            return (state.legs.reduce((total, leg) => {
+                return total + (leg.premium * leg.quantity * 100);
+            }, 0)).toFixed(2);
         }
 
         function generatePLData() {
@@ -226,14 +272,22 @@
             const step = (rangeMax - rangeMin) / 100;
             
             for (let price = rangeMin; price <= rangeMax; price += step) {
-                const intrinsicValue = state.contractType === 'call' 
-                    ? Math.max(0, price - state.strikePrice)
-                    : Math.max(0, state.strikePrice - price);
-                const profitLoss = intrinsicValue - state.premium;
+                let totalPL = 0;
+                
+                // Calculate P/L for each leg
+                state.legs.forEach(leg => {
+                    const intrinsicValue = leg.type === 'call' 
+                        ? Math.max(0, price - leg.strikePrice)
+                        : Math.max(0, leg.strikePrice - price);
+                    
+                    const legPL = intrinsicValue - leg.premium;
+                    const multiplier = (leg.action === 'buy' ? 1 : -1) * leg.quantity;
+                    totalPL += legPL * multiplier * 100; // 100 shares per contract
+                });
                 
                 data.push({
                     stockPrice: price.toFixed(2),
-                    pl: profitLoss.toFixed(2)
+                    pl: totalPL.toFixed(2)
                 });
             }
             return data;
@@ -331,75 +385,108 @@
                     </div>
 
                     <div class="space-y-6">
-                        <!-- All inputs in one panel -->
-                        <div class="bg-white p-8 rounded-2xl shadow-lg">
-                            <h3 class="text-xl font-bold text-gray-900 mb-6">Contract Details</h3>
-                            
-                            <div class="space-y-6">
-                                <!-- Contract Type -->
+                        <!-- Market Context -->
+                        <div class="bg-white p-6 rounded-2xl shadow-lg">
+                            <h3 class="text-xl font-bold text-gray-900 mb-4">Market Context</h3>
+                            <div class="grid md:grid-cols-2 gap-6">
                                 <div>
-                                    <label class="block text-sm font-semibold text-gray-700 mb-3">Contract Type</label>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <button onclick="updateContractType('call')" class="py-4 rounded-xl font-semibold transition-all ${state.contractType === 'call' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
-                                            Call
-                                        </button>
-                                        <button onclick="updateContractType('put')" class="py-4 rounded-xl font-semibold transition-all ${state.contractType === 'put' ? 'bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-lg' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
-                                            Put
-                                        </button>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-3">Current Stock Price</label>
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-gray-500">$</span>
+                                        <input type="number" min="1" max="500" value="${state.currentPrice}" 
+                                            onchange="updateValue('currentPrice', this.value)"
+                                            class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
                                     </div>
                                 </div>
-
-                                <div class="grid md:grid-cols-2 gap-6">
-                                    <!-- Strike Price -->
-                                    <div>
-                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
-                                            Strike Price
-                                        </label>
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-gray-500">$</span>
-                                            <input type="number" min="1" max="500" value="${state.strikePrice}" 
-                                                onchange="updateValue('strikePrice', this.value)"
-                                                class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
-                                        </div>
-                                    </div>
-
-                                    <!-- Current Stock Price -->
-                                    <div>
-                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
-                                            Current Stock Price
-                                        </label>
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-gray-500">$</span>
-                                            <input type="number" min="1" max="500" value="${state.currentPrice}" 
-                                                onchange="updateValue('currentPrice', this.value)"
-                                                class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
-                                        </div>
-                                    </div>
-
-                                    <!-- Premium -->
-                                    <div>
-                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
-                                            Premium (per share)
-                                        </label>
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-gray-500">$</span>
-                                            <input type="number" min="0.1" max="100" step="0.1" value="${state.premium}" 
-                                                onchange="updateValue('premium', this.value)"
-                                                class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
-                                        </div>
-                                    </div>
-
-                                    <!-- Days to Expiration -->
-                                    <div>
-                                        <label class="block text-sm font-semibold text-gray-700 mb-3">
-                                            Days to Expiration
-                                        </label>
-                                        <input type="number" min="1" max="365" value="${state.daysToExpiration}" 
-                                            onchange="updateValue('daysToExpiration', this.value)"
-                                            class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
-                                    </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-3">Days to Expiration</label>
+                                    <input type="number" min="1" max="365" value="${state.daysToExpiration}" 
+                                        onchange="updateValue('daysToExpiration', this.value)"
+                                        class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none text-lg font-semibold">
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Option Legs -->
+                        <div class="bg-white p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-bold text-gray-900">Option Legs</h3>
+                                <button onclick="addLeg()" class="px-4 py-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white rounded-xl hover:from-cyan-600 hover:to-teal-600 transition-all font-semibold flex items-center gap-2">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                    </svg>
+                                    Add Leg
+                                </button>
+                            </div>
+                            
+                            ${state.legs.map((leg, index) => `
+                                <div class="mb-6 p-6 border-2 border-gray-200 rounded-xl ${index > 0 ? 'mt-4' : ''}">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h4 class="font-bold text-gray-900">Leg ${index + 1}</h4>
+                                        ${state.legs.length > 1 ? `
+                                            <button onclick="removeLeg(${leg.id})" class="text-red-600 hover:text-red-700 font-semibold text-sm">
+                                                Remove
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                    
+                                    <div class="space-y-4">
+                                        <!-- Action & Type -->
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">Action</label>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <button onclick="updateLeg(${leg.id}, 'action', 'buy')" class="py-2 rounded-lg font-semibold transition-all ${leg.action === 'buy' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-700'}">
+                                                        Buy
+                                                    </button>
+                                                    <button onclick="updateLeg(${leg.id}, 'action', 'sell')" class="py-2 rounded-lg font-semibold transition-all ${leg.action === 'sell' ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-700'}">
+                                                        Sell
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">Type</label>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <button onclick="updateLeg(${leg.id}, 'type', 'call')" class="py-2 rounded-lg font-semibold transition-all ${leg.type === 'call' ? 'bg-cyan-500 text-white' : 'bg-gray-100 text-gray-700'}">
+                                                        Call
+                                                    </button>
+                                                    <button onclick="updateLeg(${leg.id}, 'type', 'put')" class="py-2 rounded-lg font-semibold transition-all ${leg.type === 'put' ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-700'}">
+                                                        Put
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Strike, Premium, Quantity -->
+                                        <div class="grid md:grid-cols-3 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">Strike Price</label>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-gray-500">$</span>
+                                                    <input type="number" min="1" max="500" value="${leg.strikePrice}" 
+                                                        onchange="updateLeg(${leg.id}, 'strikePrice', this.value)"
+                                                        class="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-cyan-500 focus:outline-none font-semibold">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">Premium</label>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-gray-500">$</span>
+                                                    <input type="number" min="0.1" max="100" step="0.1" value="${leg.premium}" 
+                                                        onchange="updateLeg(${leg.id}, 'premium', this.value)"
+                                                        class="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-cyan-500 focus:outline-none font-semibold">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                                                <input type="number" min="1" max="100" value="${leg.quantity}" 
+                                                    onchange="updateLeg(${leg.id}, 'quantity', this.value)"
+                                                    class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-cyan-500 focus:outline-none font-semibold">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
                         </div>
 
                         <!-- Position Summary -->
@@ -407,8 +494,8 @@
                             <h3 class="text-xl font-bold text-gray-900 mb-6">Position Summary</h3>
                             <div class="grid md:grid-cols-4 gap-6">
                                 <div class="text-center">
-                                    <p class="text-sm text-gray-500 mb-1">Breakeven</p>
-                                    <p class="text-3xl font-bold text-cyan-600">$${breakeven.toFixed(2)}</p>
+                                    <p class="text-sm text-gray-500 mb-1">Net Cost</p>
+                                    <p class="text-3xl font-bold text-cyan-600">$${calculateNetCost()}</p>
                                 </div>
                                 <div class="text-center">
                                     <p class="text-sm text-gray-500 mb-1">Max Profit</p>
@@ -419,8 +506,8 @@
                                     <p class="text-3xl font-bold text-rose-600">$${maxLoss}</p>
                                 </div>
                                 <div class="text-center">
-                                    <p class="text-sm text-gray-500 mb-1">Total Cost</p>
-                                    <p class="text-3xl font-bold text-gray-900">$${(state.premium * 100).toFixed(0)}</p>
+                                    <p class="text-sm text-gray-500 mb-1">Total Legs</p>
+                                    <p class="text-3xl font-bold text-gray-900">${state.legs.length}</p>
                                 </div>
                             </div>
                         </div>
@@ -639,10 +726,10 @@
 
         function renderEducationView() {
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onclick="changeView('builder')"></div>
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onclick="changeView(state.previousView)"></div>
                 <div class="fixed inset-4 md:inset-8 bg-white rounded-3xl shadow-2xl overflow-hidden animate-slideUp z-50">
                     <div class="bg-gradient-to-r from-cyan-500 via-teal-500 to-blue-500 p-6 relative">
-                        <button onclick="changeView('builder')" class="absolute top-4 right-4 text-white/90 hover:text-white hover:bg-white/20 rounded-full p-2 transition-all">
+                        <button onclick="changeView(state.previousView)" class="absolute top-4 right-4 text-white/90 hover:text-white hover:bg-white/20 rounded-full p-2 transition-all">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                             </svg>
@@ -672,7 +759,7 @@
                     </div>
 
                     <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-white via-white to-transparent">
-                        <button onclick="changeView('builder')" class="w-full py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white font-bold rounded-xl hover:from-cyan-600 hover:to-teal-600 transition-all shadow-lg">
+                        <button onclick="changeView(state.previousView)" class="w-full py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white font-bold rounded-xl hover:from-cyan-600 hover:to-teal-600 transition-all shadow-lg">
                             Done
                         </button>
                     </div>
@@ -703,6 +790,7 @@
         }
 
         function changeView(view) {
+            state.previousView = state.view;
             state.view = view;
             render();
         }
@@ -715,6 +803,56 @@
         function updateValue(key, value) {
             state[key] = parseFloat(value);
             render();
+        }
+
+        function addLeg() {
+            state.legs.push({
+                id: state.nextLegId++,
+                type: 'call',
+                action: 'buy',
+                strikePrice: state.currentPrice,
+                premium: 5,
+                quantity: 1,
+                delta: 0.5,
+                gamma: 0.05,
+                theta: -0.15
+            });
+            render();
+        }
+
+        function removeLeg(legId) {
+            state.legs = state.legs.filter(leg => leg.id !== legId);
+            render();
+        }
+
+        function updateLeg(legId, field, value) {
+            const leg = state.legs.find(l => l.id === legId);
+            if (leg) {
+                leg[field] = isNaN(value) ? value : parseFloat(value);
+                render();
+            }
+        }
+
+        function calculateNetCost() {
+            return state.legs.reduce((total, leg) => {
+                const cost = leg.premium * leg.quantity * 100;
+                return total + (leg.action === 'buy' ? cost : -cost);
+            }, 0).toFixed(2);
+        }
+
+        function calculateAggregateGreeks() {
+            let totalDelta = 0;
+            let totalGamma = 0;
+            let totalTheta = 0;
+            
+            state.legs.forEach(leg => {
+                const multiplier = (leg.action === 'buy' ? 1 : -1) * leg.quantity;
+                totalDelta += (leg.delta || 0.5) * multiplier;
+                totalGamma += (leg.gamma || 0.05) * multiplier;
+                totalTheta += (leg.theta || -0.15) * multiplier;
+            });
+            
+            return { delta: totalDelta, gamma: totalGamma, theta: totalTheta };
         }
 
         function generateInsight() {
@@ -846,71 +984,94 @@
             
             // Store cell data for hover interactions
             const cellData = [];
-            
-            // Draw heatmap cells
+
+            // ── Pass 1: compute every cell's finalPL so we can derive a
+            //    percentile-based normalization divisor before drawing anything.
+            const cellGrid = [];  // flat array, same iteration order as drawing pass
+            const absPLValues = [];
+
             for (let i = 0; i < priceSteps; i++) {
                 for (let j = 0; j < timeSteps; j++) {
                     const price = priceMin + i * priceStep;
                     const daysLeft = timeMax - j * timeStep;
-                    
-                    // Calculate P/L for this price/time combination
+
                     const intrinsicValue = state.contractType === 'call'
                         ? Math.max(0, price - state.strikePrice)
                         : Math.max(0, state.strikePrice - price);
-                    
-                    // Apply time decay (theta effect)
+
                     const timeDecay = state.theta * (state.daysToExpiration - daysLeft);
                     const contractValue = intrinsicValue + state.premium + timeDecay;
-                    const pl = contractValue - state.premium;
-                    const plPercentage = (pl / state.premium) * 100;
-                    
-                    // Apply delta influence (gradient left/right)
+                    const plPerContract = contractValue - state.premium;
+                    const pl = plPerContract * 100;
+                    const plPercentage = (plPerContract / state.premium) * 100;
+
                     const deltaInfluence = state.delta * (price - state.strikePrice);
                     const adjustedPL = pl + deltaInfluence * 0.1;
-                    
-                    // Apply gamma effect (sharper transitions near strike)
+
                     const distanceFromStrike = Math.abs(price - state.strikePrice);
                     const gammaMultiplier = 1 + state.gamma * 10 / (1 + distanceFromStrike / 10);
                     const finalPL = adjustedPL * gammaMultiplier;
-                    
-                    // Color calculation
-                    const maxPL = state.strikePrice * 0.3; // Scale for color intensity
-                    const normalizedPL = Math.max(-1, Math.min(1, finalPL / maxPL));
-                    
-                    // Theta fade effect (reduce opacity as time passes)
-                    const opacityFactor = daysLeft / state.daysToExpiration;
-                    
-                    let color;
-                    if (normalizedPL > 0) {
-                        // Green for profit
-                        color = `rgba(16, 185, 129, ${opacityFactor * 0.3 + normalizedPL * 0.7})`;
-                    } else if (normalizedPL < 0) {
-                        // Red for loss
-                        color = `rgba(239, 68, 68, ${opacityFactor * 0.3 + Math.abs(normalizedPL) * 0.7})`;
-                    } else {
-                        // Yellow for breakeven
-                        color = `rgba(250, 204, 21, ${opacityFactor * 0.5})`;
-                    }
-                    
-                    // Draw cell
-                    const x = padding + i * cellWidth;
-                    const y = padding + j * cellHeight;
-                    ctx.fillStyle = color;
-                    ctx.fillRect(x, y, cellWidth, cellHeight);
-                    
-                    // Store cell data for hover
-                    cellData.push({
-                        x: x,
-                        y: y,
-                        width: cellWidth,
-                        height: cellHeight,
-                        price: price,
-                        daysLeft: daysLeft,
-                        contractValue: contractValue,
-                        pl: pl,
-                        plPercentage: plPercentage
-                    });
+
+                    cellGrid.push({ price, daysLeft, contractValue, pl, plPercentage, finalPL });
+                    absPLValues.push(Math.abs(finalPL));
                 }
+            }
+
+            // Compute the 95th percentile of |finalPL| using linear interpolation.
+            // Sort a copy so the original iteration order is preserved.
+            const sorted = absPLValues.slice().sort((a, b) => a - b);
+            const p95Index = 0.95 * (sorted.length - 1);
+            const lowerIdx = Math.floor(p95Index);
+            const upperIdx = Math.ceil(p95Index);
+            const fraction = p95Index - lowerIdx;
+            const p95Value = sorted[lowerIdx] + fraction * (sorted[upperIdx] - sorted[lowerIdx]);
+
+            // Guard against division-by-zero when all P/L values are zero
+            const normDivisor = p95Value > 0 ? p95Value : 1;
+
+            // ── Pass 2: draw each cell using the percentile-based normalization.
+            for (let k = 0; k < cellGrid.length; k++) {
+                const { price, daysLeft, contractValue, pl, plPercentage, finalPL } = cellGrid[k];
+                const i = Math.floor(k / timeSteps);
+                const j = k % timeSteps;
+
+                // Normalize to [-1, 1] using the 95th-percentile divisor so that
+                // outlier cells don't flatten the rest of the gradient.
+                const normalizedPL = Math.max(-1, Math.min(1, finalPL / normDivisor));
+
+                // Theta fade effect (reduce opacity as time passes)
+                const opacityFactor = daysLeft / state.daysToExpiration;
+
+                let color;
+                if (normalizedPL > 0) {
+                    // Green for profit
+                    color = `rgba(16, 185, 129, ${opacityFactor * 0.3 + normalizedPL * 0.7})`;
+                } else if (normalizedPL < 0) {
+                    // Red for loss
+                    color = `rgba(239, 68, 68, ${opacityFactor * 0.3 + Math.abs(normalizedPL) * 0.7})`;
+                } else {
+                    // Yellow for breakeven
+                    color = `rgba(250, 204, 21, ${opacityFactor * 0.5})`;
+                }
+
+                // Draw cell
+                const x = padding + i * cellWidth;
+                const y = padding + j * cellHeight;
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, cellWidth, cellHeight);
+
+                // Store cell data for hover
+                cellData.push({
+                    x: x,
+                    y: y,
+                    width: cellWidth,
+                    height: cellHeight,
+                    price: price,
+                    daysLeft: daysLeft,
+                    contractValue: contractValue,
+                    pl: pl,
+                    plPercentage: plPercentage
+                });
             }
             
             // Draw axes and labels
@@ -1054,9 +1215,26 @@
                         </div>
                     `;
                     tooltip.style.display = 'block';
-                    tooltip.style.left = (e.clientX + 15) + 'px';
-                    tooltip.style.top = (e.clientY + 15) + 'px';
-                    
+
+                    // Use pageX/Y so position is relative to the document, not just
+                    // the viewport — this keeps the tooltip correct when scrolled
+                    const offset = 14;
+                    const tooltipWidth = tooltip.offsetWidth;
+                    const tooltipHeight = tooltip.offsetHeight;
+
+                    // Flip left if tooltip would overflow the right edge of the viewport
+                    const overflowsRight = e.clientX + offset + tooltipWidth > window.innerWidth;
+                    // Flip up if tooltip would overflow the bottom edge of the viewport
+                    const overflowsBottom = e.clientY + offset + tooltipHeight > window.innerHeight;
+
+                    tooltip.style.left = (overflowsRight
+                        ? e.pageX - tooltipWidth - offset
+                        : e.pageX + offset) + 'px';
+
+                    tooltip.style.top = (overflowsBottom
+                        ? e.pageY - tooltipHeight - offset
+                        : e.pageY + offset) + 'px';
+
                     canvas.style.cursor = 'pointer';
                 } else {
                     tooltip.style.display = 'none';
